@@ -35,7 +35,7 @@ static readonly MAX_HEADERS = 52n
 - benificiary: Addr - recipient of funds if difficulty is reached
 - issuer: Addr - issuer of contract
 - satoshis: bigint - satoshis being locked in contract
-- prevHeader: ByteString - previous block header. Submit a few block back to ensure - a reorg does not invalidate contract
+- prevHeader: ByteString - previous block header. Submit header from few blocks back to ensure a reorg does not invalidate contract
 - prevHeight: bigint - height associated with previous block header
 - targetDifficulty: bigint - Difficulty which much be acheived to unlock contract
 - requiredTargetCount: bigint - number of blocks at target difficulty required
