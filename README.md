@@ -21,7 +21,7 @@ npm run test:testnet
 ## Config
 
 ```
-static readonly MAX_HEADERS = 52596n
+static readonly MAX_HEADERS = 52n
 // maximum number of block headers that can be processed in a single transaction call
 // 52596n = 1 year's worth of blocks at 10 minutes per block.
 // Smaller values will produce a smaller bitcoin transactions, but recordBlocks
