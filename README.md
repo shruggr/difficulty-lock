@@ -79,3 +79,7 @@ static bits2Target(bits: ByteString): bigint {
     return lshift(coefficient, n)
 }
 ```
+
+## Bounty Payments
+
+1shrgL5Hd3XDnm8AChvKmi1nFpkVa6kxz
