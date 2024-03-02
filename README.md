@@ -1,4 +1,4 @@
-# Difflock
+# DifficultyLock
 
 ## Build
 
