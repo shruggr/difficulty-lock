@@ -52,7 +52,7 @@ export class DifficultyLock extends SmartContract {
     expirationHeight: bigint
 
     @prop(true)
-    benificaryPayOut: ByteString
+    benificiaryPayOut: ByteString
 
     @prop(true)
     issuerPayOut: ByteString
@@ -76,7 +76,7 @@ export class DifficultyLock extends SmartContract {
         this.targetDifficulty = targetDifficulty
         this.requiredTargetCount = requiredTargetCount
         this.expirationHeight = expirationHeight
-        this.benificaryPayOut = toByteString('')
+        this.benificiaryPayOut = toByteString('')
         this.issuerPayOut = toByteString('')
     }
 
@@ -164,7 +164,7 @@ export class DifficultyLock extends SmartContract {
         )
 
         this.benificiary = benificiary
-        this.benificaryPayOut = benificaryPayOut
+        this.benificiaryPayOut = benificaryPayOut
         const outputs =
             this.buildStateOutput(this.satoshis) +
             trailingOuts +
@@ -178,15 +178,18 @@ export class DifficultyLock extends SmartContract {
 
     @method()
     public purchaseBeneficiary(benificiary: Addr, trailingOuts: ByteString) {
-        const outputs =
-            this.buildStateOutput(this.satoshis) + this.benificaryPayOut
-        trailingOuts + this.buildChangeOutput()
-
+        const payOut = this.benificiaryPayOut
         this.benificiary = benificiary
-        this.benificaryPayOut = toByteString('')
+        this.benificiaryPayOut = toByteString('')
+        const outputs =
+            this.buildStateOutput(this.satoshis) +
+            payOut +
+            trailingOuts +
+            this.buildChangeOutput()
+
         assert(
             hash256(outputs) === this.ctx.hashOutputs,
-            `invalid outputs hash`
+            `invalid outputs hash `
         )
     }
 
@@ -218,14 +221,14 @@ export class DifficultyLock extends SmartContract {
 
     @method()
     public purchaseIssuer(issuer: Addr, trailingOuts: ByteString) {
-        const outputs =
-            this.buildStateOutput(this.satoshis) +
-            this.issuerPayOut +
-            trailingOuts +
-            this.buildChangeOutput()
-
+        const payOut = this.issuerPayOut
         this.issuer = issuer
         this.issuerPayOut = toByteString('')
+        const outputs =
+            this.buildStateOutput(this.satoshis) +
+            payOut +
+            trailingOuts +
+            this.buildChangeOutput()
 
         assert(
             hash256(outputs) === this.ctx.hashOutputs,
@@ -258,22 +261,62 @@ export class DifficultyLock extends SmartContract {
                 })
             )
 
-        const br = new bsv.encoding.BufferReader(
-            Buffer.from(trailingOuts, 'hex')
-        )
-        while (!br.eof) {
-            tx.addOutput(bsv.Transaction.Output.fromBufferReader(br))
+        if (trailingOuts) {
+            const br = new bsv.encoding.BufferReader(
+                Buffer.from(trailingOuts, 'hex')
+            )
+            while (br.remaining() > 0) {
+                const output = bsv.Transaction.Output.fromBufferReader(br)
+                tx.addOutput(output)
+            }
         }
+
         tx.change(options.changeAddress || defaultAddress)
 
         return { tx, atInputIndex: 0, nexts: [] }
     }
 
-    static async transferBenificiaryTxBuilder(
+    static async updateBenificiaryTxBuilder(
         current: DifficultyLock,
         options: MethodCallOptions<DifficultyLock>,
         sig: Sig,
         pubkey: PubKey,
+        benificiary: Addr,
+        benificaryPayOut: ByteString,
+        trailingOuts: ByteString
+    ): Promise<ContractTransaction> {
+        const defaultAddress = await current.signer.getDefaultAddress()
+
+        const next = current.next()
+        next.benificiary = benificiary
+        next.benificiaryPayOut = benificaryPayOut
+
+        const tx = new bsv.Transaction().addInput(current.buildContractInput())
+        tx.addOutput(
+            new bsv.Transaction.Output({
+                script: next.lockingScript,
+                satoshis: Number(next.satoshis),
+            })
+        )
+
+        if (trailingOuts) {
+            const br = new bsv.encoding.BufferReader(
+                Buffer.from(trailingOuts, 'hex')
+            )
+            while (br.remaining() > 0) {
+                const output = bsv.Transaction.Output.fromBufferReader(br)
+                tx.addOutput(output)
+            }
+        }
+
+        tx.change(options.changeAddress || defaultAddress)
+
+        return { tx, atInputIndex: 0, nexts: [] }
+    }
+
+    static async purchaseBeneficiaryTxBuilder(
+        current: DifficultyLock,
+        options: MethodCallOptions<DifficultyLock>,
         benificiary: Addr,
         trailingOuts: ByteString
     ): Promise<ContractTransaction> {
@@ -281,6 +324,53 @@ export class DifficultyLock extends SmartContract {
 
         const next = current.next()
         next.benificiary = benificiary
+        const benificaryPayOut = next.benificiaryPayOut
+        next.benificiaryPayOut = toByteString('')
+
+        const tx = new bsv.Transaction()
+            .addInput(current.buildContractInput())
+            .addOutput(
+                new bsv.Transaction.Output({
+                    script: next.lockingScript,
+                    satoshis: Number(next.satoshis),
+                })
+            )
+            .addOutput(
+                bsv.Transaction.Output.fromBufferReader(
+                    new bsv.encoding.BufferReader(
+                        Buffer.from(benificaryPayOut, 'hex')
+                    )
+                )
+            )
+
+        if (trailingOuts) {
+            const br = new bsv.encoding.BufferReader(
+                Buffer.from(trailingOuts, 'hex')
+            )
+            while (br.remaining() > 0) {
+                const output = bsv.Transaction.Output.fromBufferReader(br)
+                tx.addOutput(output)
+            }
+        }
+        tx.change(options.changeAddress || defaultAddress)
+
+        return { tx, atInputIndex: 0, nexts: [] }
+    }
+
+    static async updateIssuerTxBuilder(
+        current: DifficultyLock,
+        options: MethodCallOptions<DifficultyLock>,
+        sig: Sig,
+        pubkey: PubKey,
+        issuer: Addr,
+        issuerPayOut: ByteString,
+        trailingOuts: ByteString
+    ): Promise<ContractTransaction> {
+        const defaultAddress = await current.signer.getDefaultAddress()
+
+        const next = current.next()
+        next.issuer = issuer
+        next.issuerPayOut = issuerPayOut
 
         const tx = new bsv.Transaction().addInput(current.buildContractInput())
         tx.addOutput(
@@ -290,11 +380,14 @@ export class DifficultyLock extends SmartContract {
             })
         )
 
-        const br = new bsv.encoding.BufferReader(
-            Buffer.from(trailingOuts, 'hex')
-        )
-        while (!br.eof) {
-            tx.addOutput(bsv.Transaction.Output.fromBufferReader(br))
+        if (trailingOuts) {
+            const br = new bsv.encoding.BufferReader(
+                Buffer.from(trailingOuts, 'hex')
+            )
+            while (br.remaining() > 0) {
+                const output = bsv.Transaction.Output.fromBufferReader(br)
+                tx.addOutput(output)
+            }
         }
 
         tx.change(options.changeAddress || defaultAddress)
@@ -302,32 +395,43 @@ export class DifficultyLock extends SmartContract {
         return { tx, atInputIndex: 0, nexts: [] }
     }
 
-    static async transferIssuerTxBuilder(
+    static async purchaseIssuerTxBuilder(
         current: DifficultyLock,
         options: MethodCallOptions<DifficultyLock>,
-        sig: Sig,
-        pubkey: PubKey,
         issuer: Addr,
         trailingOuts: ByteString
     ): Promise<ContractTransaction> {
         const defaultAddress = await current.signer.getDefaultAddress()
 
         const next = current.next()
+        const issuerPayOut = next.issuerPayOut
         next.issuer = issuer
+        next.issuerPayOut = toByteString('')
 
-        const tx = new bsv.Transaction().addInput(current.buildContractInput())
-        tx.addOutput(
-            new bsv.Transaction.Output({
-                script: next.lockingScript,
-                satoshis: Number(next.satoshis),
-            })
-        )
+        const tx = new bsv.Transaction()
+            .addInput(current.buildContractInput())
+            .addOutput(
+                new bsv.Transaction.Output({
+                    script: next.lockingScript,
+                    satoshis: Number(next.satoshis),
+                })
+            )
+            .addOutput(
+                bsv.Transaction.Output.fromBufferReader(
+                    new bsv.encoding.BufferReader(
+                        Buffer.from(issuerPayOut, 'hex')
+                    )
+                )
+            )
 
-        const br = new bsv.encoding.BufferReader(
-            Buffer.from(trailingOuts, 'hex')
-        )
-        while (!br.eof) {
-            tx.addOutput(bsv.Transaction.Output.fromBufferReader(br))
+        if (trailingOuts) {
+            const br = new bsv.encoding.BufferReader(
+                Buffer.from(trailingOuts, 'hex')
+            )
+            while (br.remaining() > 0) {
+                const output = bsv.Transaction.Output.fromBufferReader(br)
+                tx.addOutput(output)
+            }
         }
 
         tx.change(options.changeAddress || defaultAddress)

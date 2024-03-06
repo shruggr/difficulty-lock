@@ -1,6 +1,7 @@
 import { expect, use } from 'chai'
 import {
     Addr,
+    bsv,
     findSig,
     MethodCallOptions,
     PubKey,
@@ -13,7 +14,7 @@ import chaiAsPromised from 'chai-as-promised'
 import { Blockchain } from 'scrypt-ts-lib'
 use(chaiAsPromised)
 
-const [initPriv, initPub, initPkh] = randomPrivateKey()
+const [initPriv, initPub, initPkh, initAdd] = randomPrivateKey()
 const [benPriv, benPub, benPkh, benAdd] = randomPrivateKey()
 const [issPriv, issPub, issPkh, issAdd] = randomPrivateKey()
 
@@ -41,17 +42,18 @@ describe('Test SmartContract `DifficultyLock`', () => {
         )
         await instance.connect(getDefaultSigner([initPriv, benPriv, issPriv]))
         instance.bindTxBuilder(
-            'transferIssuer',
-            DifficultyLock.transferIssuerTxBuilder
+            'updateIssuer',
+            DifficultyLock.updateIssuerTxBuilder
         )
 
         const deployTx = await instance.deploy(100)
         console.log(`Deployed contract "DifficultyLock": ${deployTx.id}`)
 
-        const callRes = await instance.methods.transferIssuer(
+        const callRes = await instance.methods.updateIssuer(
             (sigReqs) => findSig(sigReqs, initPub),
             PubKey(toHex(initPub)),
             Addr(issPkh.toString('hex')),
+            toByteString(''),
             toByteString(''),
             {
                 changeAddress: issAdd,
@@ -59,7 +61,7 @@ describe('Test SmartContract `DifficultyLock`', () => {
             } as MethodCallOptions<DifficultyLock>
         )
 
-        console.log(`Called "transferIssuer" method: ${callRes.tx.id}`)
+        console.log(`Called "updateIssuer" method: ${callRes.tx.id}`)
     })
 
     it('should transfer benificiary.', async () => {
@@ -75,17 +77,18 @@ describe('Test SmartContract `DifficultyLock`', () => {
         )
         await instance.connect(getDefaultSigner([initPriv, benPriv, issPriv]))
         instance.bindTxBuilder(
-            'transferBenificiary',
-            DifficultyLock.transferBenificiaryTxBuilder
+            'updateBenificiary',
+            DifficultyLock.updateBenificiaryTxBuilder
         )
 
         const deployTx = await instance.deploy(100)
         console.log(`Deployed contract "DifficultyLock": ${deployTx.id}`)
 
-        const callRes = await instance.methods.transferBenificiary(
+        const callRes = await instance.methods.updateBenificiary(
             (sigReqs) => findSig(sigReqs, initPub),
             PubKey(initPub.toHex()),
             Addr(benPkh.toString('hex')),
+            toByteString(''),
             toByteString(''),
             {
                 changeAddress: benAdd,
@@ -93,7 +96,7 @@ describe('Test SmartContract `DifficultyLock`', () => {
             } as MethodCallOptions<DifficultyLock>
         )
 
-        console.log(`Called "transferBenificiary" method: ${callRes.tx.id}`)
+        console.log(`Called "updateBenificiary" method: ${callRes.tx.id}`)
     })
 
     it('should record blocks.', async () => {
@@ -123,8 +126,6 @@ describe('Test SmartContract `DifficultyLock`', () => {
         console.log(`Deployed contract "DifficultyLock": ${deployTx.id}`)
 
         const callRes = await instance.methods.recordBlocks(
-            (sigReqs) => findSig(sigReqs, benPub),
-            PubKey(benPub.toHex()),
             bh1M1,
             toByteString(''),
             {
@@ -158,8 +159,6 @@ describe('Test SmartContract `DifficultyLock`', () => {
 
         const call = async () =>
             instance.methods.recordBlocks(
-                (sigReqs) => findSig(sigReqs, benPub),
-                PubKey(benPub.toHex()),
                 toByteString(
                     '0300000034396f827db1fabda26ea0a1c66b74f1b72c092327a126a9462e0000000000000499350778884725469e0a4fd7a782f79b9e272ccaba9f21f10f7891f566960a38571956340b351a11f71ec9'
                 ),
@@ -220,16 +219,18 @@ describe('Test SmartContract `DifficultyLock`', () => {
         const bh1M4 = toByteString(
             '000000201a7e16123cae1358864eae1bcc1dbe443a1baf1963d4e6f128d315000000000056b4a4f743341c6e7da170892036effffa7f83851a5ffcec88585438c002e31c084d0758c0cc521b303178a1'
         )
-        // const bh1M5 = toByteString('000000201d77cbef288470e2926358379564d675f15418df84dd8292f1990f0000000000686cc01a43cf102dcb749bd44b2694ca5169a124a64aa5b25a2c1827d9d50d29254d0758c0cc521b6281d04e')
+        const bh1M5 = toByteString(
+            '000000201d77cbef288470e2926358379564d675f15418df84dd8292f1990f0000000000686cc01a43cf102dcb749bd44b2694ca5169a124a64aa5b25a2c1827d9d50d29254d0758c0cc521b6281d04e'
+        )
 
-        let instance = new DifficultyLock(
+        const instance = new DifficultyLock(
             Addr(benPkh.toString('hex')),
             Addr(issPkh.toString('hex')),
             100n,
             bh1M,
             1000000n,
-            Blockchain.bits2Target(toByteString('180b442a')),
-            10n,
+            Blockchain.bits2Target(toByteString('1b52ccc0')),
+            5n,
             1100000n
         )
         await instance.connect(getDefaultSigner([initPriv, benPriv, issPriv]))
@@ -241,10 +242,8 @@ describe('Test SmartContract `DifficultyLock`', () => {
         const deployTx = await instance.deploy(100)
         console.log(`Deployed contract "DifficultyLock": ${deployTx.id}`)
 
-        let callRes = await instance.methods.recordBlocks(
-            (sigReqs) => findSig(sigReqs, benPub),
-            PubKey(benPub.toHex()),
-            bh1M1 + bh1M2,
+        const callRes = await instance.methods.recordBlocks(
+            bh1M1 + bh1M2 + bh1M3 + bh1M4 + bh1M5,
             toByteString(''),
             {
                 changeAddress: benAdd,
@@ -255,18 +254,144 @@ describe('Test SmartContract `DifficultyLock`', () => {
         console.log(
             `Called "recordBlocks" 1 method: ${callRes.tx.id} ${instance.prevHeight} ${instance.prevHeader}`
         )
+    })
+
+    it('should allow listing and purchasing of benificiary', async () => {
+        let instance = new DifficultyLock(
+            Addr(initPkh.toString('hex')),
+            Addr(initPkh.toString('hex')),
+            100n,
+            bh577267,
+            577267n,
+            Blockchain.bits2Target(toByteString('1a350b34')),
+            1n,
+            577277n
+        )
+        await instance.connect(getDefaultSigner([initPriv, benPriv, issPriv]))
+        instance.bindTxBuilder(
+            'updateBenificiary',
+            DifficultyLock.updateBenificiaryTxBuilder
+        )
+
+        const deployTx = await instance.deploy(100)
+        console.log(`Deployed contract "DifficultyLock": ${deployTx.id}`)
+
+        let callRes = await instance.methods.updateBenificiary(
+            (sigReqs) => findSig(sigReqs, initPub),
+            PubKey(initPub.toHex()),
+            toByteString(initPkh.toString('hex')),
+            toByteString(
+                new bsv.Transaction.Output({
+                    satoshis: 1000,
+                    script: bsv.Script.buildPublicKeyHashOut(initAdd),
+                })
+                    .toBufferWriter()
+                    .toBuffer()
+                    .toString('hex')
+            ),
+            // test trailing outputs
+            toByteString(
+                new bsv.Transaction.Output({
+                    satoshis: 1000,
+                    script: bsv.Script.buildPublicKeyHashOut(initAdd),
+                })
+                    .toBufferWriter()
+                    .toBuffer()
+                    .toString('hex')
+            ),
+            {
+                changeAddress: initAdd,
+                pubKeyOrAddrToSign: initPub,
+            } as MethodCallOptions<DifficultyLock>
+        )
+
+        console.log(`Called "updateBenificiary" 1 method: ${callRes.tx.id}`)
 
         instance = DifficultyLock.fromTx(callRes.tx, 0)
         await instance.connect(getDefaultSigner([initPriv, benPriv, issPriv]))
         instance.bindTxBuilder(
-            'recordBlocks',
-            DifficultyLock.recordBlocksTxBuilder
+            'purchaseBeneficiary',
+            DifficultyLock.purchaseBeneficiaryTxBuilder
+        )
+        console.log('benificiaryPayOut', instance.benificiaryPayOut)
+        callRes = await instance.methods.purchaseBeneficiary(
+            toByteString(benPkh.toString('hex')),
+            // test trailing outputs
+            toByteString(
+                new bsv.Transaction.Output({
+                    satoshis: 1000,
+                    script: bsv.Script.buildPublicKeyHashOut(initAdd),
+                })
+                    .toBufferWriter()
+                    .toBuffer()
+                    .toString('hex')
+            ),
+            {
+                changeAddress: benAdd,
+                pubKeyOrAddrToSign: benPub,
+            } as MethodCallOptions<DifficultyLock>
         )
 
-        callRes = await instance.methods.recordBlocks(
-            (sigReqs) => findSig(sigReqs, benPub),
-            PubKey(benPub.toHex()),
-            bh1M3 + bh1M4,
+        console.log(`Called "purchaseBeneficiary" 1 method: ${callRes.tx.id}`)
+
+        instance = DifficultyLock.fromTx(callRes.tx, 0)
+        expect(
+            instance.benificiary === benPkh.toString('hex'),
+            'benificiary should be updated'
+        ).to.be.true
+    })
+
+    it('should allow listing and purchasing of issuer', async () => {
+        let instance = new DifficultyLock(
+            Addr(initPkh.toString('hex')),
+            Addr(initPkh.toString('hex')),
+            100n,
+            bh577267,
+            577267n,
+            Blockchain.bits2Target(toByteString('1a350b34')),
+            1n,
+            577277n
+        )
+        await instance.connect(getDefaultSigner([initPriv, benPriv, issPriv]))
+        instance.bindTxBuilder(
+            'updateIssuer',
+            DifficultyLock.updateIssuerTxBuilder
+        )
+
+        const deployTx = await instance.deploy(100)
+        console.log(`Deployed contract "DifficultyLock": ${deployTx.id}`)
+
+        let callRes = await instance.methods.updateIssuer(
+            (sigReqs) => findSig(sigReqs, initPub),
+            PubKey(initPub.toHex()),
+            toByteString(initPkh.toString('hex')),
+            toByteString(
+                new bsv.Transaction.Output({
+                    satoshis: 1000,
+                    script: bsv.Script.buildPublicKeyHashOut(initAdd),
+                })
+                    .toBufferWriter()
+                    .toBuffer()
+                    .toString('hex')
+            ),
+            toByteString(''),
+            {
+                changeAddress: initAdd,
+                pubKeyOrAddrToSign: initPub,
+            } as MethodCallOptions<DifficultyLock>
+        )
+
+        console.log(`Called "updateIssuer" 1 method: ${callRes.tx.id}`)
+
+        instance = DifficultyLock.fromTx(callRes.tx, 0)
+        await instance.connect(getDefaultSigner([initPriv, benPriv, issPriv]))
+        instance.bindTxBuilder(
+            'purchaseIssuer',
+            DifficultyLock.purchaseIssuerTxBuilder
+        )
+
+        callRes = await instance.methods.purchaseIssuer(
+            toByteString(issPkh.toString('hex')),
             toByteString(''),
             {
                 changeAddress: benAdd,
@@ -274,15 +399,23 @@ describe('Test SmartContract `DifficultyLock`', () => {
             } as MethodCallOptions<DifficultyLock>
         )
 
-        console.log(
-            `Called "recordBlocks" 2 method: ${callRes.tx.id} ${instance.prevHeight} ${instance.prevHeader}`
+        console.log(`Called "purchaseIssuer" 1 method: ${callRes.tx.id}`)
+
+        instance = DifficultyLock.fromTx(callRes.tx, 0)
+        expect(
+            instance.issuer === issPkh.toString('hex'),
+            'issuer should be updated'
+        ).to.be.true
+
+        await instance.connect(getDefaultSigner([initPriv, benPriv, issPriv]))
+        instance.bindTxBuilder(
+            'purchaseIssuer',
+            DifficultyLock.purchaseIssuerTxBuilder
         )
 
-        const call = async () =>
-            instance.methods.recordBlocks(
-                (sigReqs) => findSig(sigReqs, benPub),
-                PubKey(benPub.toHex()),
-                bh1M1 + bh1M2,
+        const call = () =>
+            instance.methods.purchaseIssuer(
+                toByteString(issPkh.toString('hex')),
                 toByteString(''),
                 {
                     changeAddress: benAdd,
