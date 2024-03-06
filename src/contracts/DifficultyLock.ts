@@ -19,13 +19,6 @@ import {
 import { Blockchain } from 'scrypt-ts-lib'
 import { hash160 } from 'scryptlib'
 
-type DifficultyLockState = {
-    header: ByteString
-    height: bigint
-    fulfilled: boolean
-    remaining: bigint
-}
-
 export class DifficultyLock extends SmartContract {
     // maximum number of block headers that can be processed in a single transaction call
     // 52596n = 1 year's worth of blocks at 10 minutes per block.
@@ -52,11 +45,17 @@ export class DifficultyLock extends SmartContract {
     @prop()
     targetDifficulty: bigint
 
+    @prop(true)
+    requiredTargetCount: bigint
+
     @prop()
     expirationHeight: bigint
 
     @prop(true)
-    remaining: bigint
+    benificaryPayOut: ByteString
+
+    @prop(true)
+    issuerPayOut: ByteString
 
     constructor(
         benificiary: Addr,
@@ -75,40 +74,26 @@ export class DifficultyLock extends SmartContract {
         this.prevHeader = prevHeader
         this.prevHeight = prevHeight
         this.targetDifficulty = targetDifficulty
-        this.remaining = requiredTargetCount
+        this.requiredTargetCount = requiredTargetCount
         this.expirationHeight = expirationHeight
+        this.benificaryPayOut = toByteString('')
+        this.issuerPayOut = toByteString('')
     }
 
     @method()
-    public recordBlocks(
-        sig: Sig,
-        pubkey: PubKey,
-        headers: ByteString,
-        trailingOuts: ByteString
-    ) {
+    public recordBlocks(headers: ByteString, trailingOuts: ByteString) {
         assert(
-            hash160(pubkey) == this.benificiary,
-            'Only the benificiary can increment the block'
+            this.processHeaders(
+                this.prevHeader,
+                this.requiredTargetCount,
+                headers
+            ),
+            'Invalid headers'
         )
-        assert(this.checkSig(sig, pubkey), 'Invalid signature')
-        const callState = this.processHeaders(
-            {
-                header: this.prevHeader,
-                height: this.prevHeight,
-                fulfilled: false,
-                remaining: this.remaining,
-            },
-            headers
-        )
-
-        let outputs = toByteString('', false)
-        if (!callState.fulfilled) {
-            this.prevHeader = callState.header
-            this.prevHeight = callState.height
-            this.remaining = callState.remaining
-            outputs = this.buildStateOutput(this.satoshis)
-        }
-        outputs += trailingOuts + this.buildChangeOutput()
+        const outputs =
+            Utils.buildPublicKeyHashOutput(this.benificiary, this.satoshis) +
+            trailingOuts +
+            this.buildChangeOutput()
 
         assert(
             hash256(outputs) === this.ctx.hashOutputs,
@@ -118,14 +103,16 @@ export class DifficultyLock extends SmartContract {
 
     @method()
     processHeaders(
-        callState: DifficultyLockState,
+        prevHeader: ByteString,
+        remaining: bigint,
         headers: ByteString
-    ): DifficultyLockState {
+    ): boolean {
+        let fulfilled = false
         for (let i = 0n; i < DifficultyLock.MAX_HEADERS; i++) {
-            if (!callState.fulfilled && len(headers) >= 80n * (i + 1n)) {
+            if (!fulfilled && len(headers) >= 80n * (i + 1n)) {
                 const header = slice(headers, 80n * i, 80n * i + 80n)
                 assert(
-                    slice(header, 4n, 36n) == hash256(callState.header),
+                    slice(header, 4n, 36n) == hash256(prevHeader),
                     'Invalid block'
                 )
 
@@ -133,18 +120,17 @@ export class DifficultyLock extends SmartContract {
                 const target = Blockchain.bits2Target(slice(header, 72n, 76n))
 
                 if (bhHash <= target && target <= this.targetDifficulty) {
-                    callState.remaining = callState.remaining - 1n
+                    remaining = remaining - 1n
                 }
 
-                if (callState.remaining == 0n) {
-                    callState.fulfilled = true
+                if (remaining == 0n) {
+                    fulfilled = true
                 } else {
-                    callState.header = header
-                    callState.height = callState.height + 1n
+                    prevHeader = header
                 }
             }
         }
-        return callState
+        return fulfilled
     }
 
     @method()
@@ -164,10 +150,11 @@ export class DifficultyLock extends SmartContract {
     }
 
     @method()
-    public transferBenificiary(
+    public updateBenificiary(
         sig: Sig,
         pubkey: PubKey,
         benificiary: Addr,
+        benificaryPayOut: ByteString,
         trailingOuts: ByteString
     ) {
         assert(this.checkSig(sig, pubkey), 'Invalid signature')
@@ -177,6 +164,48 @@ export class DifficultyLock extends SmartContract {
         )
 
         this.benificiary = benificiary
+        this.benificaryPayOut = benificaryPayOut
+        const outputs =
+            this.buildStateOutput(this.satoshis) +
+            trailingOuts +
+            this.buildChangeOutput()
+
+        assert(
+            hash256(outputs) === this.ctx.hashOutputs,
+            `invalid outputs hash`
+        )
+    }
+
+    @method()
+    public purchaseBeneficiary(benificiary: Addr, trailingOuts: ByteString) {
+        const outputs =
+            this.buildStateOutput(this.satoshis) + this.benificaryPayOut
+        trailingOuts + this.buildChangeOutput()
+
+        this.benificiary = benificiary
+        this.benificaryPayOut = toByteString('')
+        assert(
+            hash256(outputs) === this.ctx.hashOutputs,
+            `invalid outputs hash`
+        )
+    }
+
+    @method()
+    public updateIssuer(
+        sig: Sig,
+        pubkey: PubKey,
+        issuer: Addr,
+        issuerPayOut: ByteString,
+        trailingOuts: ByteString
+    ) {
+        assert(
+            hash160(pubkey) == this.issuer,
+            'Only the issuer can transfer the issuer'
+        )
+        assert(this.checkSig(sig, pubkey), 'Invalid signature')
+
+        this.issuer = issuer
+        this.issuerPayOut = issuerPayOut
         const outputs =
             this.buildStateOutput(this.satoshis) +
             trailingOuts +
@@ -188,23 +217,16 @@ export class DifficultyLock extends SmartContract {
     }
 
     @method()
-    public transferIssuer(
-        sig: Sig,
-        pubkey: PubKey,
-        issuer: Addr,
-        trailingOuts: ByteString
-    ) {
-        assert(
-            hash160(pubkey) == this.issuer,
-            'Only the issuer can transfer the issuer'
-        )
-        assert(this.checkSig(sig, pubkey), 'Invalid signature')
-
-        this.issuer = issuer
+    public purchaseIssuer(issuer: Addr, trailingOuts: ByteString) {
         const outputs =
             this.buildStateOutput(this.satoshis) +
+            this.issuerPayOut +
             trailingOuts +
             this.buildChangeOutput()
+
+        this.issuer = issuer
+        this.issuerPayOut = toByteString('')
+
         assert(
             hash256(outputs) === this.ctx.hashOutputs,
             `invalid outputs hash`
@@ -222,29 +244,19 @@ export class DifficultyLock extends SmartContract {
         const defaultAddress = await current.signer.getDefaultAddress()
 
         const next = current.next()
-        const callState = next.processHeaders(
-            {
-                header: next.prevHeader,
-                height: next.prevHeight,
-                fulfilled: false,
-                remaining: next.remaining,
-            },
-            headers
-        )
 
-        const tx = new bsv.Transaction().addInput(current.buildContractInput())
-
-        if (!callState.fulfilled) {
-            next.prevHeader = callState.header
-            next.prevHeight = callState.height
-            next.remaining = callState.remaining
-            tx.addOutput(
+        const tx = new bsv.Transaction()
+            .addInput(current.buildContractInput())
+            .addOutput(
                 new bsv.Transaction.Output({
-                    script: next.lockingScript,
+                    script: bsv.Script.fromAddress(
+                        bsv.Address.fromPublicKeyHash(
+                            Buffer.from(next.benificiary, 'hex')
+                        )
+                    ),
                     satoshis: Number(next.satoshis),
                 })
             )
-        }
 
         const br = new bsv.encoding.BufferReader(
             Buffer.from(trailingOuts, 'hex')
