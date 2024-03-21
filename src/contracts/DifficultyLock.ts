@@ -150,6 +150,22 @@ export class DifficultyLock extends SmartContract {
     }
 
     @method()
+    public cancel(
+        benSig: Sig,
+        benPubkey: PubKey,
+        issSig: Sig,
+        issPubkey: PubKey
+    ) {
+        assert(hash160(issPubkey) == this.issuer, 'Invalid issuer')
+        assert(this.checkSig(issSig, issPubkey), 'Invalid issuer signature')
+        assert(hash160(benPubkey) == this.benificiary, 'Invalid benificiary')
+        assert(
+            this.checkSig(benSig, benPubkey),
+            'Invalid benificiary signature'
+        )
+    }
+
+    @method()
     public updateBenificiary(
         sig: Sig,
         pubkey: PubKey,
